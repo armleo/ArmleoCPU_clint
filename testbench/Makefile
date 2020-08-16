@@ -1,7 +1,8 @@
 cpp_files=sim_main.cpp
-files=
+files=../src/armleocpu_clint.v
 includepaths=
 defines=-DDEBUG_CLINT
-verilator_options=-Wno-UNOPTFLAT -Wno-DECLFILENAME
+verilator_options=-Wno-UNOPTFLAT -Wno-DECLFILENAME # -LDFLAGS "-ggdb" -CFLAGS "-ggdb"
 top=armleocpu_clint
-include ../VerilatorSimulate.mk
+OPT=-ggdb
+include VerilatorSimulate.mk

@@ -15,7 +15,11 @@ double sc_time_stamp() {
 }
 void dump_step() {
     simulation_time++;
-    if(trace) m_trace->dump(simulation_time);
+    if(trace) {
+        m_trace->dump(simulation_time);
+        m_trace->flush();
+        cout << "Dump step" << endl << flush;
+    }
 }
 void update() {
     armleocpu_clint->eval();
@@ -42,18 +46,92 @@ void next_cycle() {
 
     posedge();
     till_user_update();
-    memory_update();
     armleocpu_clint->eval();
 }
 
+class axilite_writer {
+    volatile uint16_t * AXI_AWADDR;
+    volatile uint8_t * AXI_AWVALID;
+    volatile uint8_t * AXI_AWREADY;
+    volatile uint32_t * AXI_WDATA;
+    volatile uint8_t * AXI_WSTRB;
+    volatile uint8_t * AXI_WVALID;
+    volatile uint8_t * AXI_WREADY;
+    volatile uint8_t * AXI_BRESP;
+    volatile uint8_t * AXI_BVALID;
+    volatile uint8_t * AXI_BREADY;
+    
+public:
+    axilite_writer(
+        uint16_t * _AXI_AWADDR, uint8_t * _AXI_AWVALID, uint8_t * _AXI_AWREADY,
+        uint32_t * _AXI_WDATA, uint8_t * _AXI_WSTRB, uint8_t * _AXI_WVALID, uint8_t * _AXI_WREADY,
+        uint8_t * _AXI_BRESP, uint8_t * _AXI_BVALID, uint8_t * _AXI_BREADY
+    ) : AXI_AWADDR(_AXI_AWADDR), AXI_AWVALID(_AXI_AWVALID), AXI_AWREADY(_AXI_AWREADY),
+        AXI_WDATA(_AXI_WDATA), AXI_WSTRB(_AXI_WSTRB), AXI_WVALID(_AXI_WVALID), AXI_WREADY(_AXI_WREADY),
+        AXI_BRESP(_AXI_BRESP), AXI_BVALID(_AXI_BVALID), AXI_BREADY(_AXI_BREADY)
+     {
+        *AXI_AWADDR = 0;
+        *AXI_AWVALID = 0;
+        *AXI_WDATA = 0;
+        *AXI_WSTRB = 0;
+        *AXI_WVALID = 0;
 
-void axi_write(uint32_t address, uint32_t data) {
+        *AXI_BREADY = 0;
+    }
 
-}
+    void write32_success(uint32_t addr, uint32_t data) {
+        *AXI_AWADDR = addr;
+        *AXI_AWVALID = 1;
+        *AXI_WDATA = data;
+        *AXI_WSTRB = 0xf;
+        *AXI_WVALID = 1;
 
-uint32_t axi_read(uint32_t address) {
+        *AXI_BREADY = 0;
+        bool AWDONE = 0, AWDONE_nxt = 0;
+        bool WDONE = 0, WDONE_nxt = 0;
+        bool BDONE = 0, BDONE_nxt = 0;
+        bool last_cycle = 0;
+        uint16_t timeout = 0;
+        while(!(AWDONE && WDONE && BDONE && last_cycle) && !(timeout >= 1000)) {
+            cout << "AXI_AWREADY = " << (int)(*AXI_AWREADY) << endl;
+            cout << "AXI_BRESP = " << (int)(*AXI_BRESP) << endl;
+            if(AWDONE)
+                *AXI_AWVALID = 0;
+            if(WDONE)
+                *AXI_WVALID = 0;
+            if(BDONE) {
+                *AXI_BREADY = 1;
+                last_cycle = 1;
+            }
+            armleocpu_clint->eval();
 
-}
+            if(*AXI_AWREADY && !AWDONE)
+                AWDONE_nxt = 1;
+            
+            if(*AXI_WREADY && !WDONE)
+                WDONE_nxt = 1;
+            if(WDONE && AWDONE) {
+                if(*AXI_BVALID) {
+                    if(*AXI_BRESP != 0) {
+                        cout << "Unexpexted AXI Write error" << endl << flush;
+                        throw std::runtime_error("Unexpexted AXI Write error");
+                    } else {
+                        BDONE_nxt = 1;
+                    }
+                }
+            } else if(*AXI_BVALID) {
+                cout << "BVALID Before AW and W is accepted" << endl << flush;
+                throw std::runtime_error("BVALID Before AW and W is accepted");
+            }
+            AWDONE = AWDONE_nxt;
+            WDONE = WDONE_nxt;
+            BDONE = BDONE_nxt;
+            next_cycle();
+            timeout++;
+        }
+        
+    }
+};
 
 
 
@@ -104,35 +182,52 @@ int main(int argc, char** argv, char** env) {
     armleocpu_clint->trace(m_trace, 99);
     m_trace->open("vcd_dump.vcd");
 
-    armleocpu_clint->rst_n = 0;
-    till_user_update();
-    armleocpu_clint->rst_n = 0;
-    next_cycle();
-    armleocpu_clint->rst_n = 1;
 
-    uint32_t MSIP_OFFSET = 0;
-    uint32_t MTIMECMP_OFFSET = 0x4000;
-    uint32_t MTIME_OFFSET = 0xBFF8;
-
-    uint8_t harts = 8;
-
-    AXI_WRITER axi_writer(
+    try {
+        cout << "Starting tests" << endl;
+        armleocpu_clint->rst_n = 0;
+        armleocpu_clint->AXI_ARVALID = 0;
+        armleocpu_clint->AXI_AWVALID = 0;
+        armleocpu_clint->AXI_WVALID = 0;
+        armleocpu_clint->AXI_BREADY = 0;
+        armleocpu_clint->AXI_RREADY = 0;
+        till_user_update();
+        cout << "First eval successful" << endl;
+        armleocpu_clint->rst_n = 0;
         
-    );
+        next_cycle();
+        armleocpu_clint->rst_n = 1;
+        next_cycle();
+        cout << "Reset done" << endl << flush;
+
+        uint32_t MSIP_OFFSET = 0;
+        uint32_t MTIMECMP_OFFSET = 0x4000;
+        uint32_t MTIME_OFFSET = 0xBFF8;
+
+        uint8_t harts = 8;
+        
+
+        axilite_writer writer(
+            &armleocpu_clint->AXI_AWADDR, &armleocpu_clint->AXI_AWVALID, &armleocpu_clint->AXI_AWREADY,
+            &armleocpu_clint->AXI_WDATA, &armleocpu_clint->AXI_WSTRB, &armleocpu_clint->AXI_WVALID, &armleocpu_clint->AXI_WREADY,
+            &armleocpu_clint->AXI_BRESP, &armleocpu_clint->AXI_BVALID, &armleocpu_clint->AXI_BREADY
+        );
 
     
-    try {
+    
         
         for(int i = 0; i < harts; ++i) {
+            int hart_id = i;
+            cout << "Writing" << endl;
+            writer.write32_success(MSIP_OFFSET + (hart_id << 2), 0x1);
 
-            axi_writer->write32(axi_writer, MSIP_OFFSET + hart_id, 0x1);
-
-            if(armleocpu_clint->hart_swi & (1 << i)) {
-                cout << "Test for hart: " << i << "correct hart_swi" << endl;
+            if(armleocpu_clint->hart_swi & (1 << hart_id)) {
+                cout << "Test for hart: " << hart_id << "correct hart_swi" << endl;
             }
 
             uint64_t mtime;
             bool success = 1;
+            /*
             axi_reader->read32(MTIME_OFFSET, &mtime);
             axi_writer->write32(MTIMECMP_OFFSET + i, mtime + 4);
 
@@ -146,21 +241,23 @@ int main(int argc, char** argv, char** env) {
             if(!success){
                 cout << "Failed test for MTIMECMP" << endl;
                 throw "Failed test for MTIMECMP";
-            }
+            }*/
         }
 
 
-        cout << "MMU Tests done" << endl;
+        cout << "CLINT Tests done" << endl;
 
-    } catch(exception e) {
+    } catch(runtime_error e) {
         cout << e.what();
+        cout << "Error intercepted" << endl << flush;
         next_cycle();
         next_cycle();
-        
     }
     armleocpu_clint->final();
     if (m_trace) {
+        m_trace->flush();
         m_trace->close();
+        delete m_trace;
         m_trace = NULL;
     }
 #if VM_COVERAGE

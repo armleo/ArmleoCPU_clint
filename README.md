@@ -17,12 +17,15 @@ make
 
 This will auto test the core.
 
+Structure:
+```
 src/ contains source code of core
     armleocpu_clint.v top module. Only paramter is HART_COUNT it should be in range of 1 .. 16
 testbench/
     Makefile parameters to run verilator
     VerilatorSimulate.mk parameter controlled verilator runner
     sim_main.cpp Main testbench, look into source code it's pretty simple
+```
 
 # License
 This core is licensed under standart copyright and is owned by Arman Avetisyan  

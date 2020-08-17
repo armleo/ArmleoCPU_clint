@@ -70,7 +70,7 @@ reg [15:0] address;
 reg [15:0] address_nxt; // COMB
 
  // COMB ->
-reg msip_sel, mtimecmp_high_sel, mtimecmp_low_sel, mtime_sel;
+reg msip_sel, mtimecmp_high_sel, mtimecmp_low_sel, mtime_low_sel, mtime_high_sel;
 reg [3:0] address_hart_id;
 reg address_nxt_match_any;
 
@@ -81,7 +81,8 @@ always @* begin : address_nxt_match_logic_always_comb
     msip_sel = 0;
     mtimecmp_high_sel = 0;
     mtimecmp_low_sel = 0;
-    mtime_sel = 0;
+    mtime_high_sel = 0;
+    mtime_low_sel = 0;
     if(address_nxt[15:6] == 0) begin
         msip_sel = 1;
         address_hart_id = address_nxt[5:2];
@@ -94,7 +95,10 @@ always @* begin : address_nxt_match_logic_always_comb
         address_hart_id = address_nxt[6:3];
         address_nxt_match_any = address_hart_id < HART_COUNT;
     end else if(address_nxt == 16'hBFF8) begin
-        mtime_sel = 1;
+        mtime_low_sel = 1;
+        address_nxt_match_any = 1;
+    end else if(address_nxt == 16'hBFF8 + 4) begin
+        mtime_high_sel = 1;
         address_nxt_match_any = 1;
     end
 end
@@ -121,7 +125,7 @@ always @(posedge clk) begin : main_always_ff
         AXI_BRESP <= AXI_BRESP_nxt;
         for(i = 0; i < HART_COUNT; i = i + 1) begin
             /* verilator lint_off WIDTH */
-            hart_timeri[i] <= (mtimecmp[i] >= mtime);
+            hart_timeri[i] <= (mtimecmp[i] <= mtime);
             /* verilator lint_on WIDTH */
         end
         if(state == STATE_WRITE_DATA) begin
@@ -174,8 +178,10 @@ always @* begin : main_always_comb
         AXI_RDATA = mtimecmp[address_hart_id][63:32];
     else if(mtimecmp_low_sel)
         AXI_RDATA = mtimecmp[address_hart_id][31:0];
-    else if(mtime_sel)
-        AXI_RDATA = mtime;
+    else if(mtime_low_sel)
+        AXI_RDATA = mtime[31:0];
+    else if(mtime_high_sel)
+        AXI_RDATA = mtime[63:32];
     /* verilator lint_on WIDTH */
     case(state)
         STATE_WAIT_ADDRESS: begin
@@ -215,7 +221,7 @@ always @* begin : main_always_comb
                 AXI_WREADY = 1;
                 state_nxt = STATE_WRITE_RESPOND;
                 
-                if(mtime_sel)
+                if(mtime_low_sel || mtime_high_sel)
                     AXI_BRESP_nxt = 2'b10/*ADDRESS ERROR*/;
                 else
                     AXI_BRESP_nxt = 2'b00/*OKAY*/;

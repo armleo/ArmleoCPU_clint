@@ -17,8 +17,8 @@ void dump_step() {
     simulation_time++;
     if(trace) {
         m_trace->dump(simulation_time);
-        m_trace->flush();
-        cout << "Dump step" << endl << flush;
+        //m_trace->flush();
+        //cout << "Dump step" << endl << flush;
     }
 }
 void update() {
@@ -93,8 +93,8 @@ public:
         bool last_cycle = 0;
         uint16_t timeout = 0;
         while(!(AWDONE && WDONE && BDONE && last_cycle) && !(timeout >= 1000)) {
-            cout << "AXI_AWREADY = " << (int)(*AXI_AWREADY) << endl;
-            cout << "AXI_BRESP = " << (int)(*AXI_BRESP) << endl;
+            //cout << "AXI_AWREADY = " << (int)(*AXI_AWREADY) << endl;
+            //cout << "AXI_BRESP = " << (int)(*AXI_BRESP) << endl;
             if(AWDONE)
                 *AXI_AWVALID = 0;
             if(WDONE)
@@ -129,6 +129,70 @@ public:
             next_cycle();
             timeout++;
         }
+        
+    }
+};
+
+
+class axilite_reader {
+    volatile uint16_t * AXI_ARADDR;
+    volatile uint8_t * AXI_ARVALID;
+    volatile uint8_t * AXI_ARREADY;
+    volatile uint32_t * AXI_RDATA;
+    volatile uint8_t * AXI_RRESP;
+    volatile uint8_t * AXI_RVALID;
+    volatile uint8_t * AXI_RREADY;
+    
+public:
+    axilite_reader(
+        uint16_t * _AXI_ARADDR, uint8_t * _AXI_ARVALID, uint8_t * _AXI_ARREADY,
+        uint32_t * _AXI_RDATA, uint8_t * _AXI_RRESP, uint8_t * _AXI_RVALID, uint8_t * _AXI_RREADY
+    ) : AXI_ARADDR(_AXI_ARADDR), AXI_ARVALID(_AXI_ARVALID), AXI_ARREADY(_AXI_ARREADY),
+        AXI_RDATA(_AXI_RDATA), AXI_RRESP(_AXI_RRESP), AXI_RVALID(_AXI_RVALID), AXI_RREADY(_AXI_RREADY)
+     {
+        *AXI_ARADDR = 0;
+        *AXI_ARVALID = 0;
+        *AXI_RREADY = 0;
+    }
+
+    uint32_t read32_success(uint32_t addr) {
+        *AXI_ARADDR = addr;
+        *AXI_ARVALID = 1;
+        bool ARDONE = 0, ARDONE_nxt = 0;
+        bool RDONE = 0, RDONE_nxt = 0;
+        bool last_cycle = 0, last_cycle_nxt = 0;
+        uint16_t timeout = 0;
+        uint32_t result;
+        while(!(ARDONE && RDONE && last_cycle) && !(timeout >= 1000)) {
+            if(ARDONE)
+                *AXI_ARVALID = 0;
+            if(last_cycle)
+                *AXI_RREADY = 0;
+            armleocpu_clint->eval();
+            if(*AXI_ARREADY)
+                ARDONE_nxt = 1;
+            if(*AXI_RVALID) {
+                *AXI_RREADY = 1;
+                RDONE_nxt = 1;
+                if(*AXI_RRESP != 0) {
+                    cout << "Unexptected RRESP" << endl << flush;
+                    throw std::runtime_error("Unexptected RRESP");
+                }
+                result = *AXI_RDATA;
+            }
+            if(RDONE && ARDONE)
+                last_cycle_nxt = 1;
+            
+            
+            // TODO:
+            ARDONE = ARDONE_nxt;
+            RDONE = RDONE_nxt;
+            last_cycle = last_cycle_nxt;
+
+            next_cycle();
+            timeout++;
+        }
+        return result;
         
     }
 };
@@ -213,6 +277,11 @@ int main(int argc, char** argv, char** env) {
             &armleocpu_clint->AXI_BRESP, &armleocpu_clint->AXI_BVALID, &armleocpu_clint->AXI_BREADY
         );
 
+        axilite_reader reader(
+            &armleocpu_clint->AXI_ARADDR, &armleocpu_clint->AXI_ARVALID, &armleocpu_clint->AXI_ARREADY,
+            &armleocpu_clint->AXI_RDATA, &armleocpu_clint->AXI_RRESP, &armleocpu_clint->AXI_RVALID, &armleocpu_clint->AXI_RREADY
+        );
+
     
     
         
@@ -227,10 +296,11 @@ int main(int argc, char** argv, char** env) {
 
             uint64_t mtime;
             bool success = 1;
-            /*
-            axi_reader->read32(MTIME_OFFSET, &mtime);
-            axi_writer->write32(MTIMECMP_OFFSET + i, mtime + 4);
-
+            
+            mtime = reader.read32_success(MTIME_OFFSET);
+            mtime = mtime | ((uint64_t)(reader.read32_success(MTIME_OFFSET + 4)) << 32);
+            writer.write32_success(MTIMECMP_OFFSET + (i << 3), mtime + 4);
+            writer.write32_success(MTIMECMP_OFFSET + (i << 3) + 4, (mtime + 4) >> 32);
             for(int j = 0; j < 6; ++j) {
                 if(armleocpu_clint->hart_timeri & (1 << i)) {
                     cout << "MTIMECMP test done for hart: " << i << endl;
@@ -241,8 +311,9 @@ int main(int argc, char** argv, char** env) {
             if(!success){
                 cout << "Failed test for MTIMECMP" << endl;
                 throw "Failed test for MTIMECMP";
-            }*/
+            }
         }
+        // TODO: Add test for outside registers access
 
 
         cout << "CLINT Tests done" << endl;
@@ -250,9 +321,10 @@ int main(int argc, char** argv, char** env) {
     } catch(runtime_error e) {
         cout << e.what();
         cout << "Error intercepted" << endl << flush;
-        next_cycle();
-        next_cycle();
+        
     }
+    next_cycle();
+    next_cycle();
     armleocpu_clint->final();
     if (m_trace) {
         m_trace->flush();

@@ -131,6 +131,61 @@ public:
         }
         
     }
+
+    uint32_t write32_error(uint32_t addr, uint32_t data) {
+        *AXI_AWADDR = addr;
+        *AXI_AWVALID = 1;
+        *AXI_WDATA = data;
+        *AXI_WSTRB = 0xf;
+        *AXI_WVALID = 1;
+
+        *AXI_BREADY = 0;
+        bool AWDONE = 0, AWDONE_nxt = 0;
+        bool WDONE = 0, WDONE_nxt = 0;
+        bool BDONE = 0, BDONE_nxt = 0;
+        bool last_cycle = 0;
+        uint16_t timeout = 0;
+        uint32_t result;
+        while(!(AWDONE && WDONE && BDONE && last_cycle) && !(timeout >= 1000)) {
+            //cout << "AXI_AWREADY = " << (int)(*AXI_AWREADY) << endl;
+            //cout << "AXI_BRESP = " << (int)(*AXI_BRESP) << endl;
+            if(AWDONE)
+                *AXI_AWVALID = 0;
+            if(WDONE)
+                *AXI_WVALID = 0;
+            if(BDONE) {
+                *AXI_BREADY = 1;
+                last_cycle = 1;
+            }
+            armleocpu_clint->eval();
+
+            if(*AXI_AWREADY && !AWDONE)
+                AWDONE_nxt = 1;
+            
+            if(*AXI_WREADY && !WDONE)
+                WDONE_nxt = 1;
+            if(WDONE && AWDONE) {
+                if(*AXI_BVALID) {
+                    if(*AXI_BRESP == 0) {
+                        cout << "Unexpected AXI Write no error" << endl << flush;
+                        throw std::runtime_error("Unexpected AXI Write no error");
+                    } else {
+                        BDONE_nxt = 1;
+                        result = *AXI_BRESP;
+                    }
+                }
+            } else if(*AXI_BVALID) {
+                cout << "BVALID Before AW and W is accepted" << endl << flush;
+                throw std::runtime_error("BVALID Before AW and W is accepted");
+            }
+            AWDONE = AWDONE_nxt;
+            WDONE = WDONE_nxt;
+            BDONE = BDONE_nxt;
+            next_cycle();
+            timeout++;
+        }
+        return result;
+    }
 };
 
 
@@ -194,6 +249,45 @@ public:
         }
         return result;
         
+    }
+    uint32_t read32_error(uint32_t addr) {
+        *AXI_ARADDR = addr;
+        *AXI_ARVALID = 1;
+        bool ARDONE = 0, ARDONE_nxt = 0;
+        bool RDONE = 0, RDONE_nxt = 0;
+        bool last_cycle = 0, last_cycle_nxt = 0;
+        uint16_t timeout = 0;
+        uint32_t result;
+        while(!(ARDONE && RDONE && last_cycle) && !(timeout >= 1000)) {
+            if(ARDONE)
+                *AXI_ARVALID = 0;
+            if(last_cycle)
+                *AXI_RREADY = 0;
+            armleocpu_clint->eval();
+            if(*AXI_ARREADY)
+                ARDONE_nxt = 1;
+            if(*AXI_RVALID) {
+                *AXI_RREADY = 1;
+                RDONE_nxt = 1;
+                if(*AXI_RRESP == 0) {
+                    cout << "Unexptected RRESP, no error" << endl << flush;
+                    throw std::runtime_error("Unexptected RRESP, no error");
+                }
+                result = *AXI_RRESP;
+            }
+            if(RDONE && ARDONE)
+                last_cycle_nxt = 1;
+            
+            
+            // TODO:
+            ARDONE = ARDONE_nxt;
+            RDONE = RDONE_nxt;
+            last_cycle = last_cycle_nxt;
+
+            next_cycle();
+            timeout++;
+        }
+        return result;
     }
 };
 
@@ -268,7 +362,7 @@ int main(int argc, char** argv, char** env) {
         uint32_t MTIMECMP_OFFSET = 0x4000;
         uint32_t MTIME_OFFSET = 0xBFF8;
 
-        uint8_t harts = 8;
+        uint8_t harts = 7;
         
 
         axilite_writer writer(
@@ -310,10 +404,62 @@ int main(int argc, char** argv, char** env) {
             }
             if(!success){
                 cout << "Failed test for MTIMECMP" << endl;
-                throw "Failed test for MTIMECMP";
+                throw runtime_error("Failed test for MTIMECMP");
             }
+
+            
         }
-        // TODO: Add test for outside registers access
+        int hart_id = harts;
+        uint32_t error = reader.read32_error(MSIP_OFFSET + (hart_id << 2));
+        if(!error) {
+            cout << "Access to incorrect MSIP, error expected" << endl;
+            throw runtime_error("Access to incorrect MSIP, error expected");
+        } else {
+            cout << "Access to non-existent MSIP works as expected (errors out)" << endl;
+        }
+
+        error = writer.write32_error(MSIP_OFFSET + (hart_id << 2), 0);
+        if(!error) {
+            cout << "Write to incorrect MSIP, error expected" << endl;
+            throw runtime_error("Write to incorrect MSIP, error expected");
+        } else {
+            cout << "Write to non-existent MSIP works as expected (errors out)" << endl;
+        }
+
+
+        error = reader.read32_error(MTIMECMP_OFFSET + (hart_id << 3));
+        if(!error) {
+            cout << "Access to incorrect MTIMECMP, error expected" << endl;
+            throw runtime_error("Access to incorrect MTIMECMP, error expected");
+        } else {
+            cout << "Access to non-existent MTIMECMP works as expected (errors out)" << endl;
+        }
+
+        error = writer.write32_error(MTIMECMP_OFFSET + (hart_id << 3), 0);
+        if(!error) {
+            cout << "Write to incorrect MTIMECMP, error expected" << endl;
+            throw runtime_error("Write to incorrect MTIMECMP, error expected");
+        } else {
+            cout << "Write to non-existent MTIMECMP works as expected (errors out)" << endl;
+        }
+
+
+        error = reader.read32_error(MTIME_OFFSET + 8);
+        if(!error) {
+            cout << "Access to incorrect MTIME, error expected" << endl;
+            throw runtime_error("Access to incorrect MTIME, error expected");
+        } else {
+            cout << "Access to non-existent MTIME works as expected (errors out)" << endl;
+        }
+        
+        error = writer.write32_error(MTIME_OFFSET + 8, 0);
+        if(!error) {
+            cout << "Write to incorrect MTIME, error expected" << endl;
+            throw runtime_error("Write to incorrect MTIME, error expected");
+        } else {
+            cout << "Write to non-existent MTIME works as expected (errors out)" << endl;
+        }
+        
 
 
         cout << "CLINT Tests done" << endl;

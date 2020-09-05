@@ -8,7 +8,7 @@ module armleocpu_clint(
     hart_swi, hart_timeri
 );
 
-    parameter HART_COUNT = 8; // Valid range: 1 .. 16
+    parameter HART_COUNT = 7; // Valid range: 1 .. 16
     parameter HART_COUNT_WIDTH = 3;
 
     input clk;

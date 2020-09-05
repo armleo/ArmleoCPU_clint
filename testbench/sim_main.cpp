@@ -50,7 +50,7 @@ void next_cycle() {
 }
 
 class axilite_writer {
-    volatile uint16_t * AXI_AWADDR;
+    volatile uint32_t * AXI_AWADDR;
     volatile uint8_t * AXI_AWVALID;
     volatile uint8_t * AXI_AWREADY;
     volatile uint32_t * AXI_WDATA;
@@ -63,7 +63,7 @@ class axilite_writer {
     
 public:
     axilite_writer(
-        uint16_t * _AXI_AWADDR, uint8_t * _AXI_AWVALID, uint8_t * _AXI_AWREADY,
+        uint32_t * _AXI_AWADDR, uint8_t * _AXI_AWVALID, uint8_t * _AXI_AWREADY,
         uint32_t * _AXI_WDATA, uint8_t * _AXI_WSTRB, uint8_t * _AXI_WVALID, uint8_t * _AXI_WREADY,
         uint8_t * _AXI_BRESP, uint8_t * _AXI_BVALID, uint8_t * _AXI_BREADY
     ) : AXI_AWADDR(_AXI_AWADDR), AXI_AWVALID(_AXI_AWVALID), AXI_AWREADY(_AXI_AWREADY),
@@ -135,7 +135,7 @@ public:
 
 
 class axilite_reader {
-    volatile uint16_t * AXI_ARADDR;
+    volatile uint32_t * AXI_ARADDR;
     volatile uint8_t * AXI_ARVALID;
     volatile uint8_t * AXI_ARREADY;
     volatile uint32_t * AXI_RDATA;
@@ -145,7 +145,7 @@ class axilite_reader {
     
 public:
     axilite_reader(
-        uint16_t * _AXI_ARADDR, uint8_t * _AXI_ARVALID, uint8_t * _AXI_ARREADY,
+        uint32_t * _AXI_ARADDR, uint8_t * _AXI_ARVALID, uint8_t * _AXI_ARREADY,
         uint32_t * _AXI_RDATA, uint8_t * _AXI_RRESP, uint8_t * _AXI_RVALID, uint8_t * _AXI_RREADY
     ) : AXI_ARADDR(_AXI_ARADDR), AXI_ARVALID(_AXI_ARVALID), AXI_ARREADY(_AXI_ARREADY),
         AXI_RDATA(_AXI_RDATA), AXI_RRESP(_AXI_RRESP), AXI_RVALID(_AXI_RVALID), AXI_RREADY(_AXI_RREADY)

@@ -144,6 +144,7 @@ always @(posedge clk) begin : main_always_ff
         for(i = 0; i < HART_COUNT; i = i + 1) begin
             hart_timeri[i[HART_COUNT_WIDTH-1:0]] <= 1'b0;
             mtimecmp[i[HART_COUNT_WIDTH-1:0]]  <= -64'd1;
+            hart_swi[i[HART_COUNT_WIDTH-1:0]] <= 1'b0;
         end
     end else begin
         mtime <= mtime + 1'b1;

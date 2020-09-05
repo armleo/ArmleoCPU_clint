@@ -381,7 +381,13 @@ int main(int argc, char** argv, char** env) {
         
         for(int i = 0; i < harts; ++i) {
             int hart_id = i;
-            cout << "Writing" << endl;
+            cout << "Testing hart_swi after reset" << endl;
+            if(!(armleocpu_clint->hart_swi & (1 << hart_id))) {
+                cout << "Test for hart MSIP = 0; wstrb = 0; hart_id = " << hart_id << " correct" << endl;
+            }
+
+            
+            cout << "Testing hart_swi after writing" << endl;
             writer.write32_success(MSIP_OFFSET + (hart_id << 2), 0x1);
 
             if(armleocpu_clint->hart_swi & (1 << hart_id)) {

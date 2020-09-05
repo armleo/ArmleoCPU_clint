@@ -79,11 +79,11 @@ public:
         *AXI_BREADY = 0;
     }
 
-    void write32_success(uint32_t addr, uint32_t data) {
+    void write32_success(uint32_t addr, uint32_t data, uint8_t wstrb = 0xf) {
         *AXI_AWADDR = addr;
         *AXI_AWVALID = 1;
         *AXI_WDATA = data;
-        *AXI_WSTRB = 0xf;
+        *AXI_WSTRB = wstrb;
         *AXI_WVALID = 1;
 
         *AXI_BREADY = 0;
@@ -132,11 +132,11 @@ public:
         
     }
 
-    uint32_t write32_error(uint32_t addr, uint32_t data) {
+    uint32_t write32_error(uint32_t addr, uint32_t data, uint8_t wstrb = 0xf) {
         *AXI_AWADDR = addr;
         *AXI_AWVALID = 1;
         *AXI_WDATA = data;
-        *AXI_WSTRB = 0xf;
+        *AXI_WSTRB = wstrb;
         *AXI_WVALID = 1;
 
         *AXI_BREADY = 0;
@@ -385,16 +385,27 @@ int main(int argc, char** argv, char** env) {
             writer.write32_success(MSIP_OFFSET + (hart_id << 2), 0x1);
 
             if(armleocpu_clint->hart_swi & (1 << hart_id)) {
-                cout << "Test for hart: " << hart_id << "correct hart_swi" << endl;
+                cout << "Test for hart MSIP = 1; wstrb = 0; hart_id = " << hart_id << " correct" << endl;
+            }
+
+            writer.write32_success(MSIP_OFFSET + (hart_id << 2), 0x1, 0x0);
+            
+            if(armleocpu_clint->hart_swi & (1 << hart_id)) {
+                cout << "Test for hart MSIP = 1; wstrb = 0; hart_id = " << hart_id << " correct" << endl;
             }
 
             uint64_t mtime;
-            bool success = 1;
+            bool success = false;
             
             mtime = reader.read32_success(MTIME_OFFSET);
             mtime = mtime | ((uint64_t)(reader.read32_success(MTIME_OFFSET + 4)) << 32);
             writer.write32_success(MTIMECMP_OFFSET + (i << 3), mtime + 4);
             writer.write32_success(MTIMECMP_OFFSET + (i << 3) + 4, (mtime + 4) >> 32);
+            
+            // Testing with WSTRB = 0
+            writer.write32_success(MTIMECMP_OFFSET + (i << 3), 0xFFFFFFFF, 0x0);
+            writer.write32_success(MTIMECMP_OFFSET + (i << 3) + 4, 0xFFFFFFFF, 0x0);
+            
             for(int j = 0; j < 6; ++j) {
                 if(armleocpu_clint->hart_timeri & (1 << i)) {
                     cout << "MTIMECMP test done for hart: " << i << endl;
@@ -402,6 +413,8 @@ int main(int argc, char** argv, char** env) {
                     break;
                 }
             }
+            
+
             if(!success){
                 cout << "Failed test for MTIMECMP" << endl;
                 throw runtime_error("Failed test for MTIMECMP");
